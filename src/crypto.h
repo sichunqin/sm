@@ -16,6 +16,7 @@ typedef sha3_ctx_t hash_ctx;
 #define SIGNATURE_SIZE  64
 #define PRIVATE_KEY_SIZE  64 // includes public key
 #define PUBLIC_KEY_SIZE 32
+#define ENC_KEY_SIZE 16
 
 typedef unsigned char byte;
 

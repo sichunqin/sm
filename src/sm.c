@@ -31,6 +31,17 @@ byte sm_public_key[PUBLIC_KEY_SIZE] = { 0, };
 byte sm_private_key[PRIVATE_KEY_SIZE] = { 0, };
 byte dev_public_key[PUBLIC_KEY_SIZE] = { 0, };
 
+/* from .embed section  */
+extern byte _rt_root_public_key[PUBLIC_KEY_SIZE];
+extern byte _eapp_root_public_key[PUBLIC_KEY_SIZE];
+extern byte _rt_root_enc_key[ENC_KEY_SIZE];
+extern byte _eapp_rt_enc_key[ENC_KEY_SIZE];
+
+byte rt_root_public_key[PUBLIC_KEY_SIZE] = { 0, };
+byte eapp_root_public_key[PUBLIC_KEY_SIZE] = { 0, };
+byte rt_root_enc_key[ENC_KEY_SIZE] = { 0, };
+byte eapp_rt_enc_key[ENC_KEY_SIZE] = { 0, };
+
 int osm_pmp_set(uint8_t perm)
 {
   /* in case of OSM, PMP cfg is exactly the opposite.*/
@@ -87,6 +98,12 @@ void sm_copy_key()
   sbi_memcpy(sm_public_key, sanctum_sm_public_key, PUBLIC_KEY_SIZE);
   sbi_memcpy(sm_private_key, sanctum_sm_secret_key, PRIVATE_KEY_SIZE);
   sbi_memcpy(dev_public_key, sanctum_dev_public_key, PUBLIC_KEY_SIZE);
+
+  sbi_memcpy(rt_root_public_key, sanctum_dev_public_key, PUBLIC_KEY_SIZE);
+  sbi_memcpy(eapp_root_public_key, sanctum_dev_public_key, PUBLIC_KEY_SIZE);
+  sbi_memcpy(rt_root_enc_key, rt_root_enc_key, ENC_KEY_SIZE);
+  sbi_memcpy(eapp_rt_enc_key, eapp_rt_enc_key, ENC_KEY_SIZE);
+
 }
 
 /*
