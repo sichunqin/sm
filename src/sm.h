@@ -54,6 +54,12 @@
 #define SBI_ERR_SM_DEPRECATED                          100099
 #define SBI_ERR_SM_NOT_IMPLEMENTED                     100100
 
+#define SBI_ERR_SM_ENCLAVE_SIG_WRONG                   100101
+#define SBI_ERR_SM_ENCLAVE_RT_SIG_WRONG                100102
+#define SBI_ERR_SM_ENCLAVE_EAPP_SIG_WRONG              100103
+#define SBI_ERR_SM_ENCLAVE_NO_EMBED_FOUND              100104
+#define SBI_ERR_SM_ENCLAVE_PUB_KEY_WRONG               100105
+
 #define SBI_ERR_SM_PMP_SUCCESS                         0
 #define SBI_ERR_SM_PMP_REGION_SIZE_INVALID             100020
 #define SBI_ERR_SM_PMP_REGION_NOT_PAGE_GRANULARITY     100021

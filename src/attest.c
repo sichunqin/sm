@@ -6,8 +6,23 @@
 #include "crypto.h"
 #include "page.h"
 #include <sbi/sbi_console.h>
+#include <sbi/sbi_string.h>
 
 typedef uintptr_t pte_t;
+
+#define MAGIC_NUMBER_SIZE 4
+struct embedded_data {
+  byte magic_number[MAGIC_NUMBER_SIZE];             //!emb ASCII code.
+  byte protocol_version;                             //Current version is 0.
+  byte public_key[PUBLIC_KEY_SIZE];                  //RT or Eapp public key
+  byte public_key_signature[SIGNATURE_SIZE];         //The RT or Eapp public key signed by RT or Eapp root private key
+  byte image_signature[SIGNATURE_SIZE];              //RT or Eapp image signature.
+  byte encrypted_enc_key[ENC_KEY_SIZE];              //RT or Eapp encryption key protected by RT or Eapp root enc key.
+};
+
+extern byte _rt_root_public_key[PUBLIC_KEY_SIZE];
+extern byte _eapp_root_public_key[PUBLIC_KEY_SIZE];
+
 /* This will walk the entire vaddr space in the enclave, validating
    linear at-most-once paddr mappings, and then hashing valid pages */
 int validate_and_hash_epm(hash_ctx* hash_ctx, int level,
@@ -84,7 +99,7 @@ int validate_and_hash_epm(hash_ctx* hash_ctx, int level,
        *
        * V1 != V2 ==> P1 != P2
        *
-       * We also validate that all utm vaddrs -> utm paddrs
+       * We also validate that all utm vaddrs -> utm paddr`+--+-+s
        */
       int in_runtime = ((phys_addr >= encl->pa_params.runtime_base) &&
                         (phys_addr < encl->pa_params.user_base));
@@ -167,8 +182,76 @@ int validate_and_hash_epm(hash_ctx* hash_ctx, int level,
  fatal_bail:
   return -1;
 }
+unsigned long validate_signature(uintptr_t start,uintptr_t end, const unsigned char* root_pub_key){
+  sbi_printf("start: 0x%lx: end: 0x%lx  \n", start, end);
+  unsigned char magic[] = "!emb";
+  bool embed_found = false;
+  uintptr_t temp = start;
+
+  while(temp < end){
+
+    if(sbi_memcmp((const void*) temp, (const void*)magic,4) == 0){
+        embed_found = true;
+        int sz = temp - start;
+        struct embedded_data * embed = (struct embedded_data *) temp;
+        sbi_printf("embed: 0x%lx: size: 0x%x image signature: %s \n", temp, sz, embed->image_signature);
+        //Need to verify public key first, then image
+        if(ed25519_verify((const unsigned char*) embed->public_key_signature,
+                          (const unsigned char *)embed->public_key,
+                          (size_t)PUBLIC_KEY_SIZE,
+                          (const unsigned char *)root_pub_key) == 0)
+        {
+          sbi_printf("Pub key is wrong!\n");
+          return SBI_ERR_SM_ENCLAVE_PUB_KEY_WRONG;
+        }
+        else{
+          sbi_printf("Pub key is correct!\n");
+        }
+        if(ed25519_verify((const unsigned char*) embed->image_signature,
+                          (const unsigned char *)start,
+                          (size_t) sz,
+                          (const unsigned char *)embed->public_key) == 0)
+        {
+          sbi_printf("Signature is wrong!\n");
+          return SBI_ERR_SM_ENCLAVE_SIG_WRONG;
+        }
+        else{
+          sbi_printf("Signature is correct!\n");
+        }
+    }
+    temp = temp + 4096;
+  }
+  if(!embed_found){
+    return SBI_ERR_SM_ENCLAVE_NO_EMBED_FOUND;
+  }
+  return 0;
+}
+
+
+unsigned long validate_epm_signanture(struct enclave* enclave){
+
+  uintptr_t runtime_base = enclave->pa_params.runtime_base;
+  uintptr_t user_base = enclave->pa_params.user_base;
+  uintptr_t free_base = enclave->pa_params.free_base;
+
+  sbi_printf("runtime_base: 0x%lx: user_base: 0x%lx  free_base: 0x%lx \n", runtime_base, user_base,free_base);
+
+  int rt_valid = validate_signature(runtime_base,
+                                    user_base-1,
+                                    (const unsigned char *)_rt_root_public_key);
+  if(rt_valid > 0) return rt_valid;
+
+  int eapp_valid = validate_signature(user_base,
+                                      free_base-1,
+                                      (const unsigned char *)_eapp_root_public_key);
+  if(eapp_valid > 0) return eapp_valid;
+  return 0;
+}
 
 unsigned long validate_and_hash_enclave(struct enclave* enclave){
+
+  unsigned long valid_sig = validate_epm_signanture(enclave);
+  if(valid_sig > 0) return valid_sig;
 
   hash_ctx hash_ctx;
   int ptlevel = RISCV_PGLEVEL_TOP;
@@ -196,3 +279,4 @@ unsigned long validate_and_hash_enclave(struct enclave* enclave){
 
   return SBI_ERR_SM_ENCLAVE_SUCCESS;
 }
+
