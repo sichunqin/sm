@@ -183,7 +183,7 @@ int validate_and_hash_epm(hash_ctx* hash_ctx, int level,
   return -1;
 }
 unsigned long validate_signature(uintptr_t start,uintptr_t end, const unsigned char* root_pub_key){
-  sbi_printf("start: 0x%lx: end: 0x%lx  \n", start, end);
+
   unsigned char magic[] = "!emb";
   bool embed_found = false;
   uintptr_t temp = start;
@@ -194,7 +194,7 @@ unsigned long validate_signature(uintptr_t start,uintptr_t end, const unsigned c
         embed_found = true;
         int sz = temp - start;
         struct embedded_data * embed = (struct embedded_data *) temp;
-        sbi_printf("embed: 0x%lx: size: 0x%x image signature: %s \n", temp, sz, embed->image_signature);
+
         //Need to verify public key first, then image
         if(ed25519_verify((const unsigned char*) embed->public_key_signature,
                           (const unsigned char *)embed->public_key,
@@ -249,10 +249,10 @@ unsigned long validate_epm_signanture(struct enclave* enclave){
 }
 
 unsigned long validate_and_hash_enclave(struct enclave* enclave){
-
+#ifdef VALIDATE_EPM_SIG
   unsigned long valid_sig = validate_epm_signanture(enclave);
   if(valid_sig > 0) return valid_sig;
-
+#endif
   hash_ctx hash_ctx;
   int ptlevel = RISCV_PGLEVEL_TOP;
 
