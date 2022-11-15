@@ -36,7 +36,7 @@ add_library(opensbi STATIC IMPORTED)
 SET_TARGET_PROPERTIES(opensbi PROPERTIES IMPORTED_LOCATION ${OPENSBI_SRC}/build/lib/libsbi.a)
 
 add_custom_target(opensbi-build
-    COMMAND make -C ${OPENSBI_SRC} CROSS_COMPILE=${CROSS_COMPILE} 
+    COMMAND make -C ${OPENSBI_SRC} CROSS_COMPILE=${CROSS_COMPILE}
       PLATFORM_RISCV_ISA=rv64imafd PLATFORM_RISCV_ABI=lp64d
 )
 add_dependencies(opensbi opensbi-build)
@@ -67,6 +67,9 @@ set(MOCK_SYMBOLS
      -Wl,--wrap=copy1_from_sm \
      -Wl,--wrap=copy_word_from_sm \
      -Wl,--wrap=copy_block_from_sm \
+     -Wl,--wrap=sbi_memcmp \
+     -Wl,--wrap=_rt_root_public_key \
+     -Wl,--wrap=_eapp_root_public_key \
      "
 )
 
@@ -89,10 +92,12 @@ add_executable(test_enclave
 	test_enclave.c
 	${SM_SRC}/platform/generic/platform.c
 	${SM_SRC}/sha3/sha3.c
+  ${SM_SRC}/sha512/sha512.c
 	${SM_SRC}/ed25519/ge.c
 	${SM_SRC}/ed25519/fe.c
 	${SM_SRC}/ed25519/sc.c
 	${SM_SRC}/ed25519/sign.c
+  ${SM_SRC}/ed25519/verify.c
 	${SM_SRC}/ed25519/keypair.c
 	${SM_SRC}/hkdf_sha3_512/hkdf_sha3_512.c
 	${SM_SRC}/hmac_sha3/hmac_sha3.c
@@ -112,3 +117,34 @@ set_target_properties(test_enclave
 	COMPILE_FLAGS -DTARGET_PLATFORM_HEADER=\\"${SM_SRC}\/platform\/generic\/platform.h\\"
 	LINK_FLAGS ${MOCK_SYMBOLS}
 )
+
+### test enclave singaure ###
+add_executable(test_enclave_signature
+test_enclave_signature.c
+	${SM_SRC}/platform/generic/platform.c
+	${SM_SRC}/sha3/sha3.c
+  ${SM_SRC}/sha512/sha512.c
+	${SM_SRC}/ed25519/ge.c
+	${SM_SRC}/ed25519/fe.c
+	${SM_SRC}/ed25519/sc.c
+	${SM_SRC}/ed25519/sign.c
+  ${SM_SRC}/ed25519/verify.c
+	${SM_SRC}/ed25519/keypair.c
+	${SM_SRC}/hkdf_sha3_512/hkdf_sha3_512.c
+	${SM_SRC}/hmac_sha3/hmac_sha3.c
+	${SM_SRC}/pmp.c
+#	${SM_SRC}/attest.c
+	${SM_SRC}/cpu.c
+	${SM_SRC}/crypto.c
+	${SM_SRC}/thread.c
+	${SM_SRC}/sm.c
+	${MOCK_SOURCE_FILES}
+	)
+target_link_libraries(test_enclave_signature cmocka)
+add_test(test_enclave_signature
+	${QEMU} ${CMAKE_CURRENT_BINARY_DIR}/test_enclave_signature)
+set_target_properties(test_enclave_signature
+	PROPERTIES
+	COMPILE_FLAGS -DTARGET_PLATFORM_HEADER=\\"${SM_SRC}\/platform\/generic\/platform.h\\"
+	LINK_FLAGS ${MOCK_SYMBOLS}
+  )

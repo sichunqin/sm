@@ -75,4 +75,17 @@ int __wrap_sbi_ecall_register_extension(struct sbi_ecall_extension *ext)
   return 0;
 }
 
+int __wrap_sbi_memcmp(void *dest, const void *src, size_t count){
+
+  const unsigned char *s1 = src;
+  const unsigned char *s2 = dest;
+
+  while (count-- > 0)
+    {
+      if (*s1++ != *s2++)
+	  return s1[-1] < s2[-1] ? -1 : 1;
+    }
+  return 0;
+}
+
 void* __wrap_ecall_keystone_enclave;
