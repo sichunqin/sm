@@ -9,15 +9,20 @@
 #include <sbi/sbi_string.h>
 
 typedef uintptr_t pte_t;
-
+#pragma pack(1)
 #define MAGIC_NUMBER_SIZE 4
 struct embedded_data {
-  byte magic_number[MAGIC_NUMBER_SIZE];             //!emb ASCII code.
+  byte magic_number[MAGIC_NUMBER_SIZE];              //!emb ASCII code.
   byte protocol_version;                             //Current version is 0.
+  short embed_size;
+  byte function_map[2];
   byte public_key[PUBLIC_KEY_SIZE];                  //RT or Eapp public key
-  byte public_key_signature[SIGNATURE_SIZE];         //The RT or Eapp public key signed by RT or Eapp root private key
   byte image_signature[SIGNATURE_SIZE];              //RT or Eapp image signature.
   byte encrypted_enc_key[ENC_KEY_SIZE];              //RT or Eapp encryption key protected by RT or Eapp root enc key.
+  byte iv[16];
+  int image_size;
+  int text_size;
+  byte embed_signature[SIGNATURE_SIZE];              //embed dat signed by RT or Eapp root private key
 };
 
 extern byte _rt_root_public_key[PUBLIC_KEY_SIZE];
@@ -182,6 +187,7 @@ int validate_and_hash_epm(hash_ctx* hash_ctx, int level,
  fatal_bail:
   return -1;
 }
+
 unsigned long validate_signature(uintptr_t start,uintptr_t end, const unsigned char* root_pub_key){
 
   unsigned char magic[] = "!emb";
@@ -192,31 +198,30 @@ unsigned long validate_signature(uintptr_t start,uintptr_t end, const unsigned c
 
     if(sbi_memcmp((const void*) temp, (const void*)magic,4) == 0){
         embed_found = true;
-        int sz = temp - start;
+
         struct embedded_data * embed = (struct embedded_data *) temp;
 
-        //Need to verify public key first, then image
-        if(ed25519_verify((const unsigned char*) embed->public_key_signature,
-                          (const unsigned char *)embed->public_key,
-                          (size_t)PUBLIC_KEY_SIZE,
+        //Need to verify embed header first, then image
+        if(ed25519_verify((const unsigned char*) embed->embed_signature,
+                          (const unsigned char *)temp,
+                          (size_t)embed->embed_size,
                           (const unsigned char *)root_pub_key) == 0)
         {
-          sbi_printf("Pub key is wrong!\n");
+          sbi_printf("Fail to check meta data!\n");
           return SBI_ERR_SM_ENCLAVE_PUB_KEY_WRONG;
         }
         else{
-          sbi_printf("Pub key is correct!\n");
+          sbi_printf("Succeed to check meta data.\n");
         }
         if(ed25519_verify((const unsigned char*) embed->image_signature,
                           (const unsigned char *)start,
-                          (size_t) sz,
+                          (size_t) embed->image_size,
                           (const unsigned char *)embed->public_key) == 0)
         {
-          sbi_printf("Signature is wrong!\n");
-          return SBI_ERR_SM_ENCLAVE_SIG_WRONG;
+           return SBI_ERR_SM_ENCLAVE_SIG_WRONG;
         }
         else{
-          sbi_printf("Signature is correct!\n");
+          sbi_printf("Succeed to check image authentity\n");
         }
     }
     temp = temp + 4096;
