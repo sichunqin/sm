@@ -102,6 +102,7 @@ add_executable(test_enclave
 	${SM_SRC}/hkdf_sha3_512/hkdf_sha3_512.c
 	${SM_SRC}/hmac_sha3/hmac_sha3.c
 	${SM_SRC}/pmp.c
+  ${SM_SRC}/aes/aes.c
 	${SM_SRC}/attest.c
 	${SM_SRC}/cpu.c
 	${SM_SRC}/crypto.c
@@ -118,13 +119,14 @@ set_target_properties(test_enclave
 	LINK_FLAGS ${MOCK_SYMBOLS}
 )
 
-### test enclave singaure ###
+### test enclave signature/decrytion ###
 add_executable(test_enclave_signature
 test_enclave_signature.c
 	${SM_SRC}/platform/generic/platform.c
+  ${SM_SRC}/aes/aes.c
 	${SM_SRC}/sha3/sha3.c
   ${SM_SRC}/sha512/sha512.c
-	${SM_SRC}/ed25519/ge.c
+ 	${SM_SRC}/ed25519/ge.c
 	${SM_SRC}/ed25519/fe.c
 	${SM_SRC}/ed25519/sc.c
 	${SM_SRC}/ed25519/sign.c
@@ -133,12 +135,11 @@ test_enclave_signature.c
 	${SM_SRC}/hkdf_sha3_512/hkdf_sha3_512.c
 	${SM_SRC}/hmac_sha3/hmac_sha3.c
 	${SM_SRC}/pmp.c
-#	${SM_SRC}/attest.c
 	${SM_SRC}/cpu.c
 	${SM_SRC}/crypto.c
 	${SM_SRC}/thread.c
 	${SM_SRC}/sm.c
-	${MOCK_SOURCE_FILES}
+  ${MOCK_SOURCE_FILES}
 	)
 target_link_libraries(test_enclave_signature cmocka)
 add_test(test_enclave_signature

@@ -82,6 +82,10 @@ struct enclave
   struct thread_state threads[MAX_ENCL_THREADS];
 
   struct platform_enclave_data ped;
+
+  uintptr_t runtime_embed;
+  uintptr_t user_embed;
+
 };
 
 /* attestation reports */

@@ -7,6 +7,7 @@
 #include "page.h"
 #include <sbi/sbi_console.h>
 #include <sbi/sbi_string.h>
+#include "aes/aes.h"
 
 typedef uintptr_t pte_t;
 #pragma pack(1)
@@ -15,7 +16,7 @@ struct embedded_data {
   byte magic_number[MAGIC_NUMBER_SIZE];              //!emb ASCII code.
   byte protocol_version;                             //Current version is 0.
   short embed_size;
-  byte function_map[2];
+  short function_map;
   byte public_key[PUBLIC_KEY_SIZE];                  //RT or Eapp public key
   byte image_signature[SIGNATURE_SIZE];              //RT or Eapp image signature.
   byte encrypted_enc_key[ENC_KEY_SIZE];              //RT or Eapp encryption key protected by RT or Eapp root enc key.
@@ -27,6 +28,14 @@ struct embedded_data {
 
 extern byte _rt_root_public_key[PUBLIC_KEY_SIZE];
 extern byte _eapp_root_public_key[PUBLIC_KEY_SIZE];
+
+void printBytes2(unsigned char *address, int size) {
+    int count;
+    for (count = 0; count < size; count++){
+        printf("%.2x", address[count]);
+    }
+    printf("\n");
+}
 
 /* This will walk the entire vaddr space in the enclave, validating
    linear at-most-once paddr mappings, and then hashing valid pages */
@@ -188,6 +197,8 @@ int validate_and_hash_epm(hash_ctx* hash_ctx, int level,
   return -1;
 }
 
+
+
 unsigned long validate_signature(uintptr_t start,uintptr_t end, const unsigned char* root_pub_key){
 
   unsigned char magic[] = "!emb";
@@ -218,7 +229,15 @@ unsigned long validate_signature(uintptr_t start,uintptr_t end, const unsigned c
                           (size_t) embed->image_size,
                           (const unsigned char *)embed->public_key) == 0)
         {
-           return SBI_ERR_SM_ENCLAVE_SIG_WRONG;
+          printf("image size: %d ", embed->image_size);
+          printf("image_sig: ");
+          printBytes2(embed->image_signature, 64);
+          printf("pub_key: ");
+          printBytes2(embed->public_key, 32);
+          sbi_printf("Fail to check image authentity\n");
+          printf("Data to verify: ");
+          printBytes2(start, 256);
+          return SBI_ERR_SM_ENCLAVE_SIG_WRONG;
         }
         else{
           sbi_printf("Succeed to check image authentity\n");
@@ -232,6 +251,47 @@ unsigned long validate_signature(uintptr_t start,uintptr_t end, const unsigned c
   return 0;
 }
 
+unsigned long decrypt_binary(uintptr_t start,uintptr_t end, const unsigned char* root_enc_key){
+
+  unsigned char magic[] = "!emb";
+  bool embed_found = false;
+  uintptr_t temp = start;
+
+  while(temp < end){
+
+    if(sbi_memcmp((const void*) temp, (const void*)magic,4) == 0){
+        embed_found = true;
+        struct embedded_data * embed = (struct embedded_data *) temp;
+        if(embed->function_map & 0x1){  //binary is encrypted
+                WORD w[80];
+                byte enc_key[32];
+                aes_key_setup(root_enc_key,w,256);
+                aes_decrypt_ctr((const BYTE *) embed->encrypted_enc_key,
+                    32,
+                    enc_key,
+                    w,
+                    256,
+                    embed->iv);
+                printf("enc_key: ");
+                printBytes2(enc_key, 32);
+                aes_key_setup(enc_key,w,256);
+                aes_decrypt_ctr((const BYTE *) start,
+                    embed->image_size,
+                    (BYTE *) start,
+                    w,
+                    256,
+                    embed->iv);
+                printf("Descrypted start: ");
+                printBytes2(start, 256);
+        }
+    }
+    temp = temp + 4096;
+  }
+  if(!embed_found){
+    return SBI_ERR_SM_ENCLAVE_NO_EMBED_FOUND;
+  }
+  return 0;
+}
 
 unsigned long validate_epm_signanture(struct enclave* enclave){
 
