@@ -27,6 +27,7 @@ platform-objs-y += ../../src/ed25519/sc.o
 platform-objs-y += ../../src/ed25519/sign.o
 platform-objs-y += ../../src/ed25519/verify.o
 
+platform-objs-y += ../../src/aes/aes.o
 platform-objs-y += ../../src/hkdf_sha3_512/hkdf_sha3_512.o
 platform-objs-y += ../../src/hmac_sha3/hmac_sha3.o
 

@@ -19,9 +19,10 @@ available at:
 /*************************** HEADER FILES ***************************/
 #include "aes.h"
 
-#include <memory.h>
-#include <stdio.h>
-#include <stdlib.h>
+//#include <memory.h>
+//#include <stdio.h>
+//#include <stdlib.h>
+#include <sbi/sbi_string.h>
 
 /****************************** MACROS ******************************/
 // The least significant byte of the word is rotated to the end.
@@ -267,14 +268,14 @@ aes_encrypt_cbc(
 
   blocks = in_len / AES_BLOCK_SIZE;
 
-  memcpy(iv_buf, iv, AES_BLOCK_SIZE);
+  sbi_memcpy(iv_buf, iv, AES_BLOCK_SIZE);
 
   for (idx = 0; idx < blocks; idx++) {
-    memcpy(buf_in, &in[idx * AES_BLOCK_SIZE], AES_BLOCK_SIZE);
+    sbi_memcpy(buf_in, &in[idx * AES_BLOCK_SIZE], AES_BLOCK_SIZE);
     xor_buf(iv_buf, buf_in, AES_BLOCK_SIZE);
     aes_encrypt(buf_in, buf_out, key, keysize);
-    memcpy(&out[idx * AES_BLOCK_SIZE], buf_out, AES_BLOCK_SIZE);
-    memcpy(iv_buf, buf_out, AES_BLOCK_SIZE);
+    sbi_memcpy(&out[idx * AES_BLOCK_SIZE], buf_out, AES_BLOCK_SIZE);
+    sbi_memcpy(iv_buf, buf_out, AES_BLOCK_SIZE);
   }
 
   return (TRUE);
@@ -291,17 +292,17 @@ aes_encrypt_cbc_mac(
 
   blocks = in_len / AES_BLOCK_SIZE;
 
-  memcpy(iv_buf, iv, AES_BLOCK_SIZE);
+  sbi_memcpy(iv_buf, iv, AES_BLOCK_SIZE);
 
   for (idx = 0; idx < blocks; idx++) {
-    memcpy(buf_in, &in[idx * AES_BLOCK_SIZE], AES_BLOCK_SIZE);
+    sbi_memcpy(buf_in, &in[idx * AES_BLOCK_SIZE], AES_BLOCK_SIZE);
     xor_buf(iv_buf, buf_in, AES_BLOCK_SIZE);
     aes_encrypt(buf_in, buf_out, key, keysize);
-    memcpy(iv_buf, buf_out, AES_BLOCK_SIZE);
+    sbi_memcpy(iv_buf, buf_out, AES_BLOCK_SIZE);
     // Do not output all encrypted blocks.
   }
 
-  memcpy(out, buf_out, AES_BLOCK_SIZE);  // Only output the last block.
+  sbi_memcpy(out, buf_out, AES_BLOCK_SIZE);  // Only output the last block.
 
   return (TRUE);
 }
@@ -317,14 +318,14 @@ aes_decrypt_cbc(
 
   blocks = in_len / AES_BLOCK_SIZE;
 
-  memcpy(iv_buf, iv, AES_BLOCK_SIZE);
+  sbi_memcpy(iv_buf, iv, AES_BLOCK_SIZE);
 
   for (idx = 0; idx < blocks; idx++) {
-    memcpy(buf_in, &in[idx * AES_BLOCK_SIZE], AES_BLOCK_SIZE);
+    sbi_memcpy(buf_in, &in[idx * AES_BLOCK_SIZE], AES_BLOCK_SIZE);
     aes_decrypt(buf_in, buf_out, key, keysize);
     xor_buf(iv_buf, buf_out, AES_BLOCK_SIZE);
-    memcpy(&out[idx * AES_BLOCK_SIZE], buf_out, AES_BLOCK_SIZE);
-    memcpy(iv_buf, buf_in, AES_BLOCK_SIZE);
+    sbi_memcpy(&out[idx * AES_BLOCK_SIZE], buf_out, AES_BLOCK_SIZE);
+    sbi_memcpy(iv_buf, buf_in, AES_BLOCK_SIZE);
   }
 
   return (TRUE);
@@ -354,9 +355,9 @@ aes_encrypt_ctr(
   size_t idx = 0, last_block_length;
   BYTE iv_buf[AES_BLOCK_SIZE], out_buf[AES_BLOCK_SIZE];
 
-  if (in != out) memcpy(out, in, in_len);
+  if (in != out) sbi_memcpy(out, in, in_len);
 
-  memcpy(iv_buf, iv, AES_BLOCK_SIZE);
+  sbi_memcpy(iv_buf, iv, AES_BLOCK_SIZE);
   last_block_length = in_len - AES_BLOCK_SIZE;
 
   if (in_len > AES_BLOCK_SIZE) {

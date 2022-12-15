@@ -29,14 +29,6 @@ struct embedded_data {
 extern byte _rt_root_public_key[PUBLIC_KEY_SIZE];
 extern byte _eapp_root_public_key[PUBLIC_KEY_SIZE];
 
-void printBytes2(unsigned char *address, int size) {
-    int count;
-    for (count = 0; count < size; count++){
-        printf("%.2x", address[count]);
-    }
-    printf("\n");
-}
-
 /* This will walk the entire vaddr space in the enclave, validating
    linear at-most-once paddr mappings, and then hashing valid pages */
 int validate_and_hash_epm(hash_ctx* hash_ctx, int level,
@@ -57,8 +49,6 @@ int validate_and_hash_epm(hash_ctx* hash_ctx, int level,
   idx = get_enclave_region_index(encl->eid, REGION_UTM);
   utm_start = pmp_region_get_addr(encl->regions[idx].pmp_rid);
   utm_size = pmp_region_get_size(encl->regions[idx].pmp_rid);
-
-
 
   /* iterate over PTEs */
   for (walk=tb, i=0; walk < tb + (RISCV_PGSIZE/sizeof(pte_t)); walk += 1,i++)
@@ -162,8 +152,29 @@ int validate_and_hash_epm(hash_ctx* hash_ctx, int level,
       /* if PTE is leaf, extend hash for the page */
       hash_extend_page(hash_ctx, (void*)phys_addr);
 
+#ifdef VALIDATE_EPM_SIG
 
+      struct embedded_data * rt_embed = (struct embedded_data *) encl->runtime_embed;
+      struct embedded_data * user_embed = (struct embedded_data *) encl->user_embed;
 
+      if(in_runtime){
+         if(phys_addr < encl->pa_params.runtime_base + rt_embed->text_size){
+            *walk = *walk | PTE_X;
+         }
+         else{
+            *walk = *walk & (~PTE_X);
+         }
+      }
+
+      if(in_user){
+         if(phys_addr < encl->pa_params.user_base + user_embed->text_size){
+           *walk = *walk | PTE_X;
+         }
+         else{
+           *walk = *walk & (~PTE_X);
+         }
+      }
+#endif
       //printm("PAGE hashed: 0x%lx (pa: 0x%lx)\n", vpn << RISCV_PGSHIFT, phys_addr);
     }
     else
@@ -197,8 +208,6 @@ int validate_and_hash_epm(hash_ctx* hash_ctx, int level,
   return -1;
 }
 
-
-
 unsigned long validate_signature(uintptr_t start,uintptr_t end, const unsigned char* root_pub_key){
 
   unsigned char magic[] = "!emb";
@@ -229,18 +238,13 @@ unsigned long validate_signature(uintptr_t start,uintptr_t end, const unsigned c
                           (size_t) embed->image_size,
                           (const unsigned char *)embed->public_key) == 0)
         {
-          printf("image size: %d ", embed->image_size);
-          printf("image_sig: ");
-          printBytes2(embed->image_signature, 64);
-          printf("pub_key: ");
-          printBytes2(embed->public_key, 32);
           sbi_printf("Fail to check image authentity\n");
-          printf("Data to verify: ");
-          printBytes2(start, 256);
           return SBI_ERR_SM_ENCLAVE_SIG_WRONG;
         }
         else{
           sbi_printf("Succeed to check image authentity\n");
+
+          return 0;
         }
     }
     temp = temp + 4096;
@@ -272,8 +276,7 @@ unsigned long decrypt_binary(uintptr_t start,uintptr_t end, const unsigned char*
                     w,
                     256,
                     embed->iv);
-                printf("enc_key: ");
-                printBytes2(enc_key, 32);
+
                 aes_key_setup(enc_key,w,256);
                 aes_decrypt_ctr((const BYTE *) start,
                     embed->image_size,
@@ -281,8 +284,6 @@ unsigned long decrypt_binary(uintptr_t start,uintptr_t end, const unsigned char*
                     w,
                     256,
                     embed->iv);
-                printf("Descrypted start: ");
-                printBytes2(start, 256);
         }
     }
     temp = temp + 4096;
@@ -293,7 +294,21 @@ unsigned long decrypt_binary(uintptr_t start,uintptr_t end, const unsigned char*
   return 0;
 }
 
-unsigned long validate_epm_signanture(struct enclave* enclave){
+uintptr_t find_embedData(uintptr_t start, uintptr_t end){
+    unsigned char magic[] = "!emb";
+
+  uintptr_t temp = start;
+
+  while(temp < end){
+    if(sbi_memcmp((const void*) temp, (const void*)magic,4) == 0){
+       return temp;
+    }
+    temp = temp + 4096;
+  }
+  return 0;
+}
+
+unsigned long validate_epm(struct enclave* enclave){
 
   uintptr_t runtime_base = enclave->pa_params.runtime_base;
   uintptr_t user_base = enclave->pa_params.user_base;
@@ -310,12 +325,18 @@ unsigned long validate_epm_signanture(struct enclave* enclave){
                                       free_base-1,
                                       (const unsigned char *)_eapp_root_public_key);
   if(eapp_valid > 0) return eapp_valid;
+
+  enclave->runtime_embed = find_embedData(runtime_base,user_base-1);
+  enclave->user_embed = find_embedData(user_base,free_base-1);
+
+  //Clear memory starting from free_base
+  sbi_memset((void*)free_base,0,enclave->pa_params.dram_base + enclave->pa_params.dram_size - free_base);
   return 0;
 }
 
 unsigned long validate_and_hash_enclave(struct enclave* enclave){
 #ifdef VALIDATE_EPM_SIG
-  unsigned long valid_sig = validate_epm_signanture(enclave);
+  unsigned long valid_sig = validate_epm(enclave);
   if(valid_sig > 0) return valid_sig;
 #endif
   hash_ctx hash_ctx;
