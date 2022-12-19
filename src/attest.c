@@ -208,65 +208,52 @@ int validate_and_hash_epm(hash_ctx* hash_ctx, int level,
   return -1;
 }
 
-unsigned long validate_signature(uintptr_t start,uintptr_t end, const unsigned char* root_pub_key){
+unsigned long validate_enclave_signature(uintptr_t start,uintptr_t embed_pt, const unsigned char* root_pub_key){
 
-  unsigned char magic[] = "!emb";
-  bool embed_found = false;
-  uintptr_t temp = start;
-
-  while(temp < end){
-
-    if(sbi_memcmp((const void*) temp, (const void*)magic,4) == 0){
-        embed_found = true;
-
-        struct embedded_data * embed = (struct embedded_data *) temp;
-
-        //Need to verify embed header first, then image
-        if(ed25519_verify((const unsigned char*) embed->embed_signature,
-                          (const unsigned char *)temp,
-                          (size_t)embed->embed_size,
-                          (const unsigned char *)root_pub_key) == 0)
-        {
-          sbi_printf("Fail to check meta data!\n");
-          return SBI_ERR_SM_ENCLAVE_PUB_KEY_WRONG;
-        }
-        else{
-          sbi_printf("Succeed to check meta data.\n");
-        }
-        if(ed25519_verify((const unsigned char*) embed->image_signature,
-                          (const unsigned char *)start,
-                          (size_t) embed->image_size,
-                          (const unsigned char *)embed->public_key) == 0)
-        {
-          sbi_printf("Fail to check image authentity\n");
-          return SBI_ERR_SM_ENCLAVE_SIG_WRONG;
-        }
-        else{
-          sbi_printf("Succeed to check image authentity\n");
-
-          return 0;
-        }
-    }
-    temp = temp + 4096;
-  }
-  if(!embed_found){
+  if(start >= embed_pt || embed_pt <= 0){
+    sbi_printf("Wrong input parameter values!\n");
     return SBI_ERR_SM_ENCLAVE_NO_EMBED_FOUND;
   }
-  return 0;
+
+  struct embedded_data * embed = (struct embedded_data *) embed_pt;
+
+   //Need to verify embed header first, then image
+  if(ed25519_verify((const unsigned char*) embed->embed_signature,
+                          (const unsigned char *)embed,
+                          (size_t)embed->embed_size,
+                          (const unsigned char *)root_pub_key) == 0)
+  {
+    sbi_printf("Fail to check meta data!\n");
+    return SBI_ERR_SM_ENCLAVE_PUB_KEY_WRONG;
+  }
+  else{
+    sbi_printf("Succeed to check meta data.\n");
+  }
+
+  if(ed25519_verify((const unsigned char*) embed->image_signature,
+    (const unsigned char *)start,
+    (size_t) embed->image_size,
+    (const unsigned char *)embed->public_key) == 0)
+  {
+    sbi_printf("Fail to check image authentity\n");
+    return SBI_ERR_SM_ENCLAVE_SIG_WRONG;
+  }
+  else{
+    sbi_printf("Succeed to check image authentity\n");
+
+    return 0;
+  }
 }
 
-unsigned long decrypt_binary(uintptr_t start,uintptr_t end, const unsigned char* root_enc_key){
+unsigned long decrypt_enclave_binary(uintptr_t start,uintptr_t embed_pt, const unsigned char* root_enc_key){
 
-  unsigned char magic[] = "!emb";
-  bool embed_found = false;
-  uintptr_t temp = start;
+  if(start >= embed_pt || embed_pt <= 0){
+    return SBI_ERR_SM_ENCLAVE_NO_EMBED_FOUND;
+  }
 
-  while(temp < end){
+  struct embedded_data * embed = (struct embedded_data *) embed_pt;
 
-    if(sbi_memcmp((const void*) temp, (const void*)magic,4) == 0){
-        embed_found = true;
-        struct embedded_data * embed = (struct embedded_data *) temp;
-        if(embed->function_map & 0x1){  //binary is encrypted
+  if(embed->function_map & 0x1){  //binary is encrypted
                 WORD w[80];
                 byte enc_key[32];
                 aes_key_setup(root_enc_key,w,256);
@@ -284,24 +271,24 @@ unsigned long decrypt_binary(uintptr_t start,uintptr_t end, const unsigned char*
                     w,
                     256,
                     embed->iv);
-        }
-    }
-    temp = temp + 4096;
-  }
-  if(!embed_found){
-    return SBI_ERR_SM_ENCLAVE_NO_EMBED_FOUND;
+
   }
   return 0;
 }
 
-uintptr_t find_embedData(uintptr_t start, uintptr_t end){
-    unsigned char magic[] = "!emb";
+uintptr_t find_embed(uintptr_t start, uintptr_t end){
 
+  if(start >= end){
+    return 0;
+  }
+  unsigned char magic[] = "!emb";
   uintptr_t temp = start;
 
   while(temp < end){
+
     if(sbi_memcmp((const void*) temp, (const void*)magic,4) == 0){
-       return temp;
+
+      return temp;
     }
     temp = temp + 4096;
   }
@@ -314,20 +301,20 @@ unsigned long validate_epm(struct enclave* enclave){
   uintptr_t user_base = enclave->pa_params.user_base;
   uintptr_t free_base = enclave->pa_params.free_base;
 
-  sbi_printf("runtime_base: 0x%lx: user_base: 0x%lx  free_base: 0x%lx \n", runtime_base, user_base,free_base);
-
-  int rt_valid = validate_signature(runtime_base,
-                                    user_base-1,
+  enclave->runtime_embed = find_embed(runtime_base,user_base-1);
+  enclave->user_embed = find_embed(user_base,free_base-1);
+  if(!enclave->runtime_embed || !enclave->user_embed){
+    return SBI_ERR_SM_ENCLAVE_NO_EMBED_FOUND;
+  }
+  int rt_valid = validate_enclave_signature(runtime_base,
+                                    enclave->runtime_embed,
                                     (const unsigned char *)_rt_root_public_key);
   if(rt_valid > 0) return rt_valid;
 
-  int eapp_valid = validate_signature(user_base,
-                                      free_base-1,
+  int eapp_valid = validate_enclave_signature(user_base,
+                                      enclave->user_embed,
                                       (const unsigned char *)_eapp_root_public_key);
   if(eapp_valid > 0) return eapp_valid;
-
-  enclave->runtime_embed = find_embedData(runtime_base,user_base-1);
-  enclave->user_embed = find_embedData(user_base,free_base-1);
 
   //Clear memory starting from free_base
   sbi_memset((void*)free_base,0,enclave->pa_params.dram_base + enclave->pa_params.dram_size - free_base);
