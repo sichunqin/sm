@@ -39,6 +39,8 @@ platform-objs-y += platform.o
 platform-objs-y += sifive_fu540.o
 platform-objs-y += ../../src/sha512/sha512.o
 
+platform-objs-y += ../../src/mm.o
+
 ifdef VALIDATE_EPM_SIG
   platform-cflags-y += -DVALIDATE_EPM_SIG
 endif

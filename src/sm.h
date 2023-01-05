@@ -59,6 +59,8 @@
 #define SBI_ERR_SM_ENCLAVE_EAPP_SIG_WRONG              100103
 #define SBI_ERR_SM_ENCLAVE_NO_EMBED_FOUND              100104
 #define SBI_ERR_SM_ENCLAVE_PUB_KEY_WRONG               100105
+#define SBI_ERR_SM_ENCLAVE_RT_PT_WRONG                 100106
+#define SBI_ERR_SM_ENCLAVE_EAPP_PT_WRONG               100107
 
 #define SBI_ERR_SM_PMP_SUCCESS                         0
 #define SBI_ERR_SM_PMP_REGION_SIZE_INVALID             100020

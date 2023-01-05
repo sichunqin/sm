@@ -8,6 +8,7 @@
 #include <sbi/sbi_console.h>
 #include <sbi/sbi_string.h>
 #include "aes/aes.h"
+#include "mm.h"
 
 typedef uintptr_t pte_t;
 #pragma pack(1)
@@ -319,6 +320,19 @@ unsigned long validate_epm(struct enclave* enclave){
   //Clear memory starting from free_base
   sbi_memset((void*)free_base,0,enclave->pa_params.dram_base + enclave->pa_params.dram_size - free_base);
   return 0;
+}
+unsigned long allocate_enclave_memory(struct enclave* encl){
+  uintptr_t epm_start, epm_size;
+
+  int idx = get_enclave_region_index(encl->eid, REGION_EPM);
+  epm_start = pmp_region_get_addr(encl->regions[idx].pmp_rid);
+  epm_size = pmp_region_get_size(encl->regions[idx].pmp_rid);
+
+  uintptr_t pa_user_base = encl->pa_params.user_base;
+  uintptr_t pa_free_base = encl->pa_params.free_base;
+
+  size_t user_size = pa_free_base - pa_user_base;
+  return allocate_epm(epm_start, epm_size, pa_user_base, user_size);
 }
 
 unsigned long validate_and_hash_enclave(struct enclave* enclave){
