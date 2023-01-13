@@ -86,7 +86,7 @@ struct enclave
   uintptr_t runtime_embed;
   uintptr_t user_embed;
   uintptr_t rootPageTable;
-  uintptr_t epmFree;
+
 };
 
 /* attestation reports */

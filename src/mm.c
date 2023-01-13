@@ -2,6 +2,7 @@
 #include "mm.h"
 #include "assert.h"
 #include <sbi/sbi_string.h>
+#include "common.h"
 
 extern char _runtime_start;
 extern char _runtime_end;
@@ -15,11 +16,13 @@ inline pte pte_create(uintptr_t ppn,int type);
 uintptr_t readMem(uintptr_t src, size_t size);
 void writeMem(uintptr_t src, uintptr_t dst, size_t size);
 
-bool allocPage(uintptr_t va, uintptr_t src, unsigned int mode, uintptr_t rootPageTable, uintptr_t* epmFreeList);
+bool allocPage(uintptr_t va, uintptr_t src, unsigned int mode, uintptr_t rootPageTable, uintptr_t* epmFreeList,uintptr_t* utmFreeList);
 
 bool mapEapp(uintptr_t epmStartAddr, size_t epmSize, uintptr_t eappStartAddr, size_t eappSize, uintptr_t rootPageTable, uintptr_t* epmFreeList);
 bool mapRuntime(uintptr_t epmStartAddr, size_t epmSize, uintptr_t rootPageTable, uintptr_t* epmFreeList);
 
+bool initializeStack(uintptr_t start, size_t size, bool is_rt,uintptr_t rootPageTable, uintptr_t* epmFreeList);
+bool allocateUntrusted(uintptr_t va_utm_start, size_t utm_size, uintptr_t rootPageTable, uintptr_t* epmFreeList, uintptr_t* utmFreeList);
 inline pte
 pte_create(uintptr_t ppn, int type) {
   return __pte((ppn << PTE_PPN_SHIFT) | PTE_V | type);
@@ -54,7 +57,7 @@ __ept_walk_internal(uintptr_t addr, int create, uintptr_t rootPageTable, uintptr
   for (i = (VA_BITS - RISCV_PGSHIFT) / RISCV_PGLEVEL_BITS - 1; i > 0; i--) {
     size_t idx = pt_idx(addr, i);
     if (!(pte_val(t[idx]) & PTE_V)) {
-      sbi_printf("Need to create PT page for: %lx \n", (unsigned long)addr);
+      debug("Need to create PT page for: %lx \n", (unsigned long)addr);
       return create ? __ept_continue_walk_create(addr, &t[idx], rootPageTable, epmFreeList) : 0;
     }
 
@@ -101,10 +104,10 @@ writeMem(uintptr_t src, uintptr_t dst, size_t size) {
 }
 
 bool
-allocPage(uintptr_t va, uintptr_t src, unsigned int mode, uintptr_t rootPageTable, uintptr_t* epmFreeList) {
+allocPage(uintptr_t va, uintptr_t src, unsigned int mode, uintptr_t rootPageTable, uintptr_t* epmFreeList, uintptr_t* utmFreeList) {
   uintptr_t page_addr;
-  uintptr_t* pFreeList = epmFreeList;
 
+  uintptr_t* pFreeList = (mode == UTM_FULL ? utmFreeList : epmFreeList);
   pte* pte = __ept_walk_create(va, rootPageTable, epmFreeList);
 
   /* if the page has been already allocated, return the page */
@@ -199,9 +202,13 @@ mapPage(uintptr_t va, uintptr_t start, unsigned int mode, uintptr_t rootPageTabl
 }
 // eppSize includes not only bin file, but also stack size.
 unsigned long
-allocate_epm(uintptr_t epmStartAddr, size_t epmSize, uintptr_t eappStartAddr, size_t eappSize){
+allocate_epm(uintptr_t epmStartAddr, size_t epmSize, uintptr_t eappStartAddr, size_t eappSize, uintptr_t utm_start, size_t utm_size, uintptr_t va_utm_start){
   sm_assert(epmStartAddr <= eappStartAddr);
   sm_assert(eappStartAddr + eappSize <= epmStartAddr + epmSize);
+
+  debug("empStart: %lx, epmSize: %lx\n", (unsigned long)epmStartAddr, (unsigned long)epmSize);
+  debug("eappStart: %lx, eappSize: %lx\n", (unsigned long)eappStartAddr, (unsigned long)eappSize);
+  debug("utm_start: %lx, utm_size: %x, va_utm_size: %lx\n", (unsigned long)utm_start, (unsigned int)utm_size,(unsigned long)va_utm_start );
 
   pte old_root_page_table[BIT(RISCV_PT_INDEX_BITS)];
   sbi_memcpy(old_root_page_table,(const void*) epmStartAddr, PAGE_SIZE);
@@ -215,8 +222,19 @@ allocate_epm(uintptr_t epmStartAddr, size_t epmSize, uintptr_t eappStartAddr, si
      return SBI_ERR_SM_ENCLAVE_RT_PT_WRONG;
   }
 
-  if(!mapEapp(epmStartAddr, epmSize, eappStartAddr, 2048, rootPageTable, &epmFreeList)){
+  if(!mapEapp(epmStartAddr, epmSize, eappStartAddr, eappSize, rootPageTable, &epmFreeList)){
      return SBI_ERR_SM_ENCLAVE_EAPP_PT_WRONG;
+  }
+
+
+#ifndef USE_FREEMEM
+  if (!initializeStack(DEFAULT_STACK_START, DEFAULT_STACK_SIZE, 0,rootPageTable, &epmFreeList)) {
+     return SBI_ERR_SM_ENCLAVE_EAPP_INIT_STACK_WRONG;
+  }
+#endif
+
+  if(!allocateUntrusted(va_utm_start, utm_size, rootPageTable,&epmFreeList, &utm_start)){
+    return SBI_ERR_SM_ENCLAVE_UNTRUST_WRONG;
   }
 
   int i;
@@ -261,8 +279,8 @@ bool mapRuntime(uintptr_t epmStartAddr, size_t epmSize, uintptr_t rootPageTable,
   uintptr_t va = ROUND_DOWN(RUNTIME_ENTRY_VA, PAGE_BITS);;
 
   while (va + PAGE_SIZE <= RUNTIME_ENTRY_VA + num_pages * PAGE_SIZE ) {
-      sbi_printf("rt begin to map va: %lx, epmFreeList： %lx\n", (unsigned long)va, (unsigned long)*epmFreeList);
-      if (!allocPage(va, (uintptr_t)src, RT_FULL, rootPageTable, epmFreeList)){
+      debug("rt begin to map va: %lx, epmFreeList： %lx\n", (unsigned long)va, (unsigned long)*epmFreeList);
+      if (!allocPage(va, (uintptr_t)src, RT_FULL, rootPageTable, epmFreeList, 0)){
         sbi_printf("Error happen va: %lx, epmFreeList： %lx\n", (unsigned long)va, (unsigned long)*epmFreeList);
         return false;
       }
@@ -280,8 +298,8 @@ bool mapEapp(uintptr_t epmStartAddr, size_t epmSize, uintptr_t eappStartAddr, si
   sm_assert(*epmFreeList >= epmStartAddr && epmStartAddr < epmStartAddr + epmSize);
   sm_assert(*epmFreeList + eappSize <= epmStartAddr + epmSize);
   uintptr_t page_va_start = ROUND_DOWN(EAPP_ENTRY_VA, PAGE_BITS);
-  sbi_printf("Map Eapp epm start: %x, empSize: %x, eappStart: %x, eappSize: %x, epmFreeList: %x \n",
-             (unsigned int)epmStartAddr, (unsigned int)epmSize, (unsigned int)eappStartAddr,(unsigned int)eappSize, (unsigned int)*epmFreeList);
+  debug("Map Eapp epm start: %x, empSize: %x, eappStart: %x, eappSize: %x, epmFreeList: %x \n",
+              (unsigned int)epmStartAddr, (unsigned int)epmSize, (unsigned int)eappStartAddr,(unsigned int)eappSize, (unsigned int)*epmFreeList);
   size_t num_pages = ROUND_UP(eappSize, PAGE_BITS) / PAGE_SIZE;
   if (epmAllocVspace(page_va_start, num_pages, rootPageTable, epmFreeList) != num_pages) {
     sbi_printf("Failed to allocate vspace for eapp in SM\n");
@@ -301,6 +319,43 @@ bool mapEapp(uintptr_t epmStartAddr, size_t epmSize, uintptr_t eappStartAddr, si
     }
     src += PAGE_SIZE;
     va += PAGE_SIZE;
+  }
+  return true;
+}
+
+bool
+initializeStack(uintptr_t start, size_t size, bool is_rt,uintptr_t rootPageTable, uintptr_t* epmFreeList) {
+
+  static char nullpage[PAGE_SIZE] = {
+      0,
+  };
+  uintptr_t high_addr    = ROUND_UP(start, PAGE_BITS);
+  uintptr_t va_start_stk = ROUND_DOWN((high_addr - size), PAGE_BITS);
+  int stk_pages          = (high_addr - va_start_stk) / PAGE_SIZE;
+
+  for (int i = 0; i < stk_pages; i++) {
+    if (!allocPage(
+            va_start_stk, (uintptr_t)nullpage,
+            (is_rt ? RT_NOEXEC : USER_NOEXEC),
+            rootPageTable, epmFreeList,0))
+      return false;
+
+    va_start_stk += PAGE_SIZE;
+  }
+
+  return true;
+}
+
+bool
+allocateUntrusted(uintptr_t va_utm_start, size_t utm_size, uintptr_t rootPageTable, uintptr_t* epmFreeList, uintptr_t* utmFreeList) {
+  uintptr_t va_start = ROUND_DOWN(va_utm_start, PAGE_BITS);
+  uintptr_t va_end =   ROUND_UP(va_utm_start + utm_size, PAGE_BITS);
+
+  while (va_start < va_end) {
+    if (!allocPage(va_start, 0, UTM_FULL, rootPageTable,epmFreeList, utmFreeList)) {
+      return false;
+    }
+    va_start += PAGE_SIZE;
   }
   return true;
 }

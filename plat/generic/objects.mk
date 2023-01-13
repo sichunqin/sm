@@ -44,3 +44,7 @@ platform-objs-y += ../../src/mm.o
 ifdef VALIDATE_EPM_SIG
   platform-cflags-y += -DVALIDATE_EPM_SIG
 endif
+
+ifdef DEBUG
+  platform-cflags-y += -DDEBUG
+endif

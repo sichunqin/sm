@@ -45,6 +45,8 @@ typedef struct {
 
 #define RUNTIME_ENTRY_VA 0xffffffffc0000000
 #define EAPP_ENTRY_VA    0x00000000000100b0
+#define DEFAULT_STACK_SIZE 1024 * 16  // 16k
+#define DEFAULT_STACK_START 0x0000000040000000
 
 #define BIT(n) (1ul << (n))
 #if __riscv_xlen == 64
@@ -55,5 +57,5 @@ typedef struct {
 #define RISCV_PT_LEVELS 2
 #endif
 
-unsigned long allocate_epm(uintptr_t epmStartAdd, size_t epmSize, uintptr_t eappStartAddr, size_t eappSize);
+unsigned long allocate_epm(uintptr_t epmStartAdd, size_t epmSize, uintptr_t eappStartAddr, size_t eappSize, uintptr_t utm_start, size_t utm_size,uintptr_t va_utm_start);
 #endif

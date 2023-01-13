@@ -61,6 +61,8 @@
 #define SBI_ERR_SM_ENCLAVE_PUB_KEY_WRONG               100105
 #define SBI_ERR_SM_ENCLAVE_RT_PT_WRONG                 100106
 #define SBI_ERR_SM_ENCLAVE_EAPP_PT_WRONG               100107
+#define SBI_ERR_SM_ENCLAVE_EAPP_INIT_STACK_WRONG       100108
+#define SBI_ERR_SM_ENCLAVE_UNTRUST_WRONG               100109
 
 #define SBI_ERR_SM_PMP_SUCCESS                         0
 #define SBI_ERR_SM_PMP_REGION_SIZE_INVALID             100020
@@ -92,6 +94,7 @@ struct runtime_va_params_t
 {
   uintptr_t runtime_entry;
   uintptr_t user_entry;
+  uintptr_t user_size;
   uintptr_t untrusted_ptr;
   uintptr_t untrusted_size;
 };

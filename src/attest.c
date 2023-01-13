@@ -69,6 +69,7 @@ int validate_and_hash_epm(hash_ctx* hash_ctx, int level,
 
     /* EPM may map anything, UTM may not map pgtables */
     if(!map_in_epm && (!map_in_utm || level != 1)){
+      sbi_printf("BAD GENERIC MAP %x %x \n", map_in_epm, map_in_utm);
       goto fatal_bail;
     }
 
@@ -113,6 +114,7 @@ int validate_and_hash_epm(hash_ctx* hash_ctx, int level,
 
       /* Validate U bit */
       if(in_user && !(*walk & PTE_U)){
+        sbi_printf("BAD GENERIC MAP %x %x %x\n", in_runtime, in_user, map_in_utm);
         goto fatal_bail;
       }
 
@@ -120,12 +122,14 @@ int validate_and_hash_epm(hash_ctx* hash_ctx, int level,
       if(va_start >= encl->params.untrusted_ptr &&
          va_start < (encl->params.untrusted_ptr + encl->params.untrusted_size) &&
          !map_in_utm){
+        sbi_printf("BAD GENERIC MAP %x %x %x\n", in_runtime, in_user, map_in_utm);
         goto fatal_bail;
       }
 
       /* Do linear mapping validation */
       if(in_runtime){
         if(phys_addr <= *runtime_max_seen){
+          sbi_printf("BAD GENERIC MAP %x %x %x\n", in_runtime, in_user, map_in_utm);
           goto fatal_bail;
         }
         else{
@@ -134,6 +138,7 @@ int validate_and_hash_epm(hash_ctx* hash_ctx, int level,
       }
       else if(in_user){
         if(phys_addr <= *user_max_seen){
+          sbi_printf("BAD GENERIC MAP %x %x %x\n", in_runtime, in_user, map_in_utm);
           goto fatal_bail;
         }
         else{
@@ -144,7 +149,7 @@ int validate_and_hash_epm(hash_ctx* hash_ctx, int level,
         // we checked this above, its OK
       }
       else{
-        //printm("BAD GENERIC MAP %x %x %x\n", in_runtime, in_user, map_in_utm);
+        sbi_printf("BAD GENERIC MAP %x %x %x\n", in_runtime, in_user, map_in_utm);
         goto fatal_bail;
       }
 
@@ -198,6 +203,7 @@ int validate_and_hash_epm(hash_ctx* hash_ctx, int level,
                0,
                //in_user,
                encl->pa_params.user_base);
+
         goto fatal_bail;
       }
     }
@@ -322,17 +328,22 @@ unsigned long validate_epm(struct enclave* enclave){
   return 0;
 }
 unsigned long allocate_enclave_memory(struct enclave* encl){
-  uintptr_t epm_start, epm_size;
+  uintptr_t epm_start, epm_size, utm_start, utm_size;
 
   int idx = get_enclave_region_index(encl->eid, REGION_EPM);
   epm_start = pmp_region_get_addr(encl->regions[idx].pmp_rid);
   epm_size = pmp_region_get_size(encl->regions[idx].pmp_rid);
 
+  idx = get_enclave_region_index(encl->eid, REGION_UTM);
+  utm_start = pmp_region_get_addr(encl->regions[idx].pmp_rid);
+  utm_size = pmp_region_get_size(encl->regions[idx].pmp_rid);
+
   uintptr_t pa_user_base = encl->pa_params.user_base;
   uintptr_t pa_free_base = encl->pa_params.free_base;
 
   size_t user_size = pa_free_base - pa_user_base;
-  return allocate_epm(epm_start, epm_size, pa_user_base, user_size);
+  user_size = encl->params.user_size;
+  return allocate_epm(epm_start, epm_size, pa_user_base, user_size,utm_start,utm_size, encl->params.untrusted_ptr);
 }
 
 unsigned long validate_and_hash_enclave(struct enclave* enclave){
