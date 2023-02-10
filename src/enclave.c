@@ -410,12 +410,16 @@ unsigned long create_enclave(unsigned long *eidptr, struct keystone_sbi_create c
 
   /* Validate memory, prepare hash and signature for attestation */
   spin_lock(&encl_lock); // FIXME This should error for second enter.
+
   #ifndef RUNTIME_PATH
   ret = validate_and_hash_enclave(&enclaves[eid]);
+
   #else
-  ret = allocate_enclave_memory(&enclaves[eid]);
-  if (ret)
-    goto unlock;
+  if(enclaves[eid].params.user_size > 0){
+    ret = allocate_enclave_memory(&enclaves[eid]);
+    if (ret)
+      goto unlock;
+  }
   ret = validate_and_hash_enclave(&enclaves[eid]);
   #endif
   /* The enclave is fresh if it has been validated and hashed but not run yet. */

@@ -195,7 +195,7 @@ int validate_and_hash_epm(hash_ctx* hash_ctx, int level,
                                          runtime_max_seen,
                                          user_max_seen);
       if(contiguous == -1){
-        sbi_printf("BAD MAP: %lx->%lx epm %x %lx uer %x %lx\n",
+        sbi_printf("BAD MAP: %lx->%lx epm %x %lx user %x %lx\n",
                va_start,phys_addr,
                //in_runtime,
                0,
