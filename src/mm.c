@@ -3,6 +3,7 @@
 #include "assert.h"
 #include <sbi/sbi_string.h>
 #include "common.h"
+#include "elf/elf.h"
 
 extern char _runtime_start;
 extern char _runtime_end;
@@ -200,11 +201,23 @@ mapPage(uintptr_t va, uintptr_t start, unsigned int mode, uintptr_t rootPageTabl
   }
   return true;
 }
+
+size_t
+epmAllocVspace(uintptr_t addr, size_t num_pages, uintptr_t rootPageTable, uintptr_t* epmFreeList) {
+  size_t count;
+
+  for (count = 0; count < num_pages; count++, addr += PAGE_SIZE) {
+    pte* pte = __ept_walk_create(addr,rootPageTable, epmFreeList);
+    if (!pte) break;
+  }
+  return count;
+}
+
 // eppSize includes not only bin file, but also stack size.
 unsigned long
 allocate_epm(uintptr_t epmStartAddr, size_t epmSize, uintptr_t eappStartAddr, size_t eappSize, uintptr_t utm_start, size_t utm_size, uintptr_t va_utm_start){
-  sm_assert(epmStartAddr <= eappStartAddr);
-  sm_assert(eappStartAddr + eappSize <= epmStartAddr + epmSize);
+  if(!(epmStartAddr <= eappStartAddr)) return SBI_ERR_SM_ENCLAVE_PARA_WRONG;
+  if(!(eappStartAddr + eappSize <= epmStartAddr + epmSize)) return SBI_ERR_SM_ENCLAVE_PARA_WRONG;
 
   debug("empStart: %lx, epmSize: %lx\n", (unsigned long)epmStartAddr, (unsigned long)epmSize);
   debug("eappStart: %lx, eappSize: %lx\n", (unsigned long)eappStartAddr, (unsigned long)eappSize);
@@ -219,11 +232,11 @@ allocate_epm(uintptr_t epmStartAddr, size_t epmSize, uintptr_t eappStartAddr, si
   uintptr_t rootPageTable = epmFreeList;
   epmFreeList += PAGE_SIZE;
   if(!mapRuntime(epmStartAddr, epmSize,rootPageTable, &epmFreeList)){
-     return SBI_ERR_SM_ENCLAVE_RT_PT_WRONG;
+     return SBI_ERR_SM_ENCLAVE_RT_MAP_WRONG;
   }
 
   if(!mapEapp(epmStartAddr, epmSize, eappStartAddr, eappSize, rootPageTable, &epmFreeList)){
-     return SBI_ERR_SM_ENCLAVE_EAPP_PT_WRONG;
+     return SBI_ERR_SM_ENCLAVE_EAPP_MAP_WRONG;
   }
 
 
@@ -249,24 +262,187 @@ allocate_epm(uintptr_t epmStartAddr, size_t epmSize, uintptr_t eappStartAddr, si
   return 0;
 }
 
-size_t
-epmAllocVspace(uintptr_t addr, size_t num_pages, uintptr_t rootPageTable, uintptr_t* epmFreeList) {
-  size_t count;
+bool mapElf(elf_t* elf, uintptr_t rootPageTable, uintptr_t* epmFreeList) {
+  uintptr_t va;
 
-  for (count = 0; count < num_pages; count++, addr += PAGE_SIZE) {
-    pte* pte = __ept_walk_create(addr,rootPageTable, epmFreeList);
-    if (!pte) break;
+  uintptr_t minVaddr;
+  uintptr_t maxVaddr;
+    /* get bound vaddrs */
+  elf_getMemoryBounds(elf, VIRTUAL, &minVaddr, &maxVaddr);
+
+  if (!IS_ALIGNED(minVaddr, PAGE_SIZE)) {
+    return false;
   }
-  return count;
+
+  maxVaddr = ROUND_UP(maxVaddr, PAGE_BITS);
+  size_t totalMemorySize = maxVaddr - minVaddr;
+  size_t num_pages =
+    ROUND_DOWN(totalMemorySize, PAGE_BITS) / PAGE_SIZE;
+  va = minVaddr;
+
+  if(epmAllocVspace(va, num_pages, rootPageTable, epmFreeList) != num_pages){
+    sbi_printf("failed to allocate vspace\n");
+    return false;
+  }
+  return true;
+}
+
+bool loadElf(elf_t* elf, unsigned int mode, uintptr_t rootPageTable, uintptr_t* epmFreeList) {
+  static char nullpage[PAGE_SIZE] = {
+      0,
+  };
+
+  for (unsigned int i = 0; i < elf_getNumProgramHeaders(elf); i++) {
+    if (elf_getProgramHeaderType(elf, i) != PT_LOAD) {
+      continue;
+    }
+
+    uintptr_t start      = elf_getProgramHeaderVaddr(elf, i);
+    uintptr_t file_end   = start + elf_getProgramHeaderFileSize(elf,i);
+    uintptr_t memory_end = start + elf_getProgramHeaderMemorySize(elf,i);
+    char* src            = (char*)(elf_getProgramSegment(elf,i));
+    uintptr_t va         = start;
+
+    /* FIXME: This is a temporary fix for loading iozone binary
+     * which has a page-misaligned program header. */
+    if (!IS_ALIGNED(va, PAGE_SIZE)) {
+      size_t offset = va - PAGE_DOWN(va);
+      size_t length = PAGE_UP(va) - va;
+      char page[PAGE_SIZE];
+      sbi_memset(page, 0, PAGE_SIZE);
+      sbi_memcpy(page + offset, (const void*)src, length);
+      //if (!pMemory->allocPage(PAGE_DOWN(va), (uintptr_t)page, mode))
+      if (!allocPage(PAGE_DOWN(va), (uintptr_t)page, mode, rootPageTable, epmFreeList, 0)){
+         sbi_printf("Error happen va: %lx, epmFreeList： %lx\n", (unsigned long)va, (unsigned long)*epmFreeList);
+         return false;
+      }
+
+      va += length;
+      src += length;
+    }
+
+    /* first load all pages that do not include .bss segment */
+    while (va + PAGE_SIZE <= file_end) {
+     //if (!pMemory->allocPage(va, (uintptr_t)src, mode))
+      if (!allocPage(va, (uintptr_t)src, mode, rootPageTable, epmFreeList, 0)){
+         sbi_printf("Error happen va: %lx, epmFreeList： %lx\n", (unsigned long)va, (unsigned long)*epmFreeList);
+         return false;
+     }
+
+      src += PAGE_SIZE;
+      va += PAGE_SIZE;
+    }
+
+    /* next, load the page that has both initialized and uninitialized segments
+     */
+    if (va < file_end) {
+      char page[PAGE_SIZE];
+      sbi_memset(page, 0, PAGE_SIZE);
+      sbi_memcpy(page, (const void*)src, (size_t)(file_end - va));
+
+      //if (!pMemory->allocPage(va, (uintptr_t)page, mode))
+      if (!allocPage(va, (uintptr_t)page, mode, rootPageTable, epmFreeList, 0)){
+        sbi_printf("Error happen va: %lx, epmFreeList： %lx\n", (unsigned long)va, (unsigned long)*epmFreeList);
+        return false;
+      }
+
+      va += PAGE_SIZE;
+    }
+
+    /* finally, load the remaining .bss segments */
+    while (va < memory_end) {
+      //if (!pMemory->allocPage(va, (uintptr_t)nullpage, mode))
+      if (!allocPage(va, (uintptr_t)nullpage, mode, rootPageTable, epmFreeList, 0)){
+        sbi_printf("Error happen va: %lx, epmFreeList： %lx\n", (unsigned long)va, (unsigned long)*epmFreeList);
+        return false;
+      }
+      va += PAGE_SIZE;
+    }
+  }
+
+  return true;
+}
+
+
+// eppSize includes not only bin file, but also stack size.
+unsigned long
+allocateEpm(struct enclave* encl){
+
+  uintptr_t epm_start, epm_size, utm_start, utm_size;
+
+  int idx = get_enclave_region_index(encl->eid, REGION_EPM);
+  epm_start = pmp_region_get_addr(encl->regions[idx].pmp_rid);
+  epm_size = pmp_region_get_size(encl->regions[idx].pmp_rid);
+
+  idx = get_enclave_region_index(encl->eid, REGION_UTM);
+  utm_start = pmp_region_get_addr(encl->regions[idx].pmp_rid);
+  utm_size = pmp_region_get_size(encl->regions[idx].pmp_rid);
+
+  sbi_memset((void*)epm_start ,0, epm_size);
+
+  elf_t elfEapp, elfRuntime;
+
+  uintptr_t epmFreeList = epm_start;
+  uintptr_t rootPageTable = epmFreeList;
+  epmFreeList += PAGE_SIZE;
+
+  uintptr_t elfRuntimePtr = (uintptr_t) &_runtime_start;
+  size_t elfRuntimeSize = &_runtime_end - &_runtime_start;
+  if (elf_newFile((void*)elfRuntimePtr, elfRuntimeSize, &elfRuntime)) {
+    return SBI_ERR_SM_ENCLAVE_INPUT_RT_ELF_WRONG;
+  }
+
+  encl->params.runtime_entry = elf_getEntryPoint(&elfRuntime);
+
+  if(!mapElf(&elfRuntime,rootPageTable,&epmFreeList)){
+     return SBI_ERR_SM_ENCLAVE_RT_MAP_WRONG;
+  }
+
+  encl->pa_params.runtime_base = epmFreeList;
+  if(!loadElf(&elfRuntime, RT_FULL,rootPageTable,&epmFreeList)){
+     return SBI_ERR_SM_ENCLAVE_RT_LOAD_WRONG;
+  }
+
+  uintptr_t elfEappPtr = utm_start + sizeof(int);
+  int elfEappSize = *(int*)utm_start;
+  if (elf_newFile((void*)elfEappPtr, elfEappSize, &elfEapp)) {
+    return SBI_ERR_SM_ENCLAVE_INPUT_EAPP_ELF_WRONG;
+  }
+
+  encl->params.user_entry = elf_getEntryPoint(&elfEapp);
+
+  if(!mapElf(&elfEapp,rootPageTable,&epmFreeList)){
+     return SBI_ERR_SM_ENCLAVE_EAPP_MAP_WRONG;
+  }
+
+  encl->pa_params.user_base = epmFreeList;
+  if(!loadElf(&elfEapp, USER_FULL,rootPageTable,&epmFreeList)){
+     return SBI_ERR_SM_ENCLAVE_EAPP_LOAD_WRONG;
+  }
+
+#ifndef USE_FREEMEM
+  if (!initializeStack(DEFAULT_STACK_START, DEFAULT_STACK_SIZE, 0,rootPageTable, &epmFreeList)) {
+     return SBI_ERR_SM_ENCLAVE_EAPP_INIT_STACK_WRONG;
+  }
+#endif
+
+  uintptr_t va_utm_start = encl->params.untrusted_ptr;
+  if(!allocateUntrusted(va_utm_start, utm_size, rootPageTable,&epmFreeList, &utm_start)){
+    return SBI_ERR_SM_ENCLAVE_UNTRUST_WRONG;
+  }
+
+  encl->pa_params.free_base = epmFreeList;
+
+  return 0;
 }
 
 bool mapRuntime(uintptr_t epmStartAddr, size_t epmSize, uintptr_t rootPageTable, uintptr_t* epmFreeList){
   size_t runtime_size = &_runtime_end - &_runtime_start;
   //size_t runtime_size = 0x18000;
-  sm_assert(*epmFreeList >= epmStartAddr);
-  sm_assert(*epmFreeList < epmStartAddr + epmSize);
-  sm_assert(runtime_size > 0);
-  sm_assert(*epmFreeList + runtime_size < epmStartAddr + epmSize );
+  if(!(*epmFreeList >= epmStartAddr)) return false;
+  if(!(*epmFreeList < epmStartAddr + epmSize)) return false;
+  if(!(runtime_size > 0)) return false;
+  if(!(*epmFreeList + runtime_size < epmStartAddr + epmSize)) return false;
 
   size_t num_pages = ROUND_UP(runtime_size, PAGE_BITS) / PAGE_SIZE;
   uintptr_t src = (uintptr_t) &_runtime_start;
@@ -293,10 +469,10 @@ bool mapRuntime(uintptr_t epmStartAddr, size_t epmSize, uintptr_t rootPageTable,
 
 bool mapEapp(uintptr_t epmStartAddr, size_t epmSize, uintptr_t eappStartAddr, size_t eappSize, uintptr_t rootPageTable, uintptr_t* epmFreeList){
 
-  sm_assert(eappStartAddr >= epmStartAddr);
-  sm_assert(eappStartAddr + eappSize <= epmStartAddr + epmSize);
-  sm_assert(*epmFreeList >= epmStartAddr && epmStartAddr < epmStartAddr + epmSize);
-  sm_assert(*epmFreeList + eappSize <= epmStartAddr + epmSize);
+  if(!(eappStartAddr >= epmStartAddr)) return false;
+  if(!(eappStartAddr + eappSize <= epmStartAddr + epmSize)) return false;
+  if(!(*epmFreeList >= epmStartAddr && epmStartAddr < epmStartAddr + epmSize)) return false;
+  if(!(*epmFreeList + eappSize <= epmStartAddr + epmSize)) return false;
   uintptr_t page_va_start = ROUND_DOWN(EAPP_ENTRY_VA, PAGE_BITS);
   debug("Map Eapp epm start: %x, empSize: %x, eappStart: %x, eappSize: %x, epmFreeList: %x \n",
               (unsigned int)epmStartAddr, (unsigned int)epmSize, (unsigned int)eappStartAddr,(unsigned int)eappSize, (unsigned int)*epmFreeList);

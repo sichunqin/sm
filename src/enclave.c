@@ -167,7 +167,7 @@ static unsigned long clean_enclave_memory(uintptr_t utbase, uintptr_t utsize)
 
   // Zero out the untrusted memory region, since it may be in
   // indeterminate state.
-  sbi_memset((void*)utbase, 0, utsize);
+  //sbi_memset((void*)utbase, 0, utsize);
 
   return SBI_ERR_SM_ENCLAVE_SUCCESS;
 }
@@ -420,7 +420,7 @@ unsigned long create_enclave(unsigned long *eidptr, struct keystone_sbi_create c
     if (ret)
       goto unlock;
   }
-  ret = validate_and_hash_enclave(&enclaves[eid]);
+  //ret = validate_and_hash_enclave(&enclaves[eid]);
   #endif
   /* The enclave is fresh if it has been validated and hashed but not run yet. */
   if (ret)

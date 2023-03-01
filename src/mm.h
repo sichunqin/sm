@@ -1,6 +1,7 @@
 #ifndef _MM_H_
 
 #include "sm.h"
+#include "enclave.h"
 
 typedef struct {
   uintptr_t pte;
@@ -58,4 +59,5 @@ typedef struct {
 #endif
 
 unsigned long allocate_epm(uintptr_t epmStartAdd, size_t epmSize, uintptr_t eappStartAddr, size_t eappSize, uintptr_t utm_start, size_t utm_size,uintptr_t va_utm_start);
+unsigned long allocateEpm(struct enclave* enclave);
 #endif

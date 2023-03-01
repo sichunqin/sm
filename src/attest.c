@@ -328,6 +328,7 @@ unsigned long validate_epm(struct enclave* enclave){
   return 0;
 }
 unsigned long allocate_enclave_memory(struct enclave* encl){
+  /*
   uintptr_t epm_start, epm_size, utm_start, utm_size;
 
   int idx = get_enclave_region_index(encl->eid, REGION_EPM);
@@ -343,7 +344,9 @@ unsigned long allocate_enclave_memory(struct enclave* encl){
 
   size_t user_size = pa_free_base - pa_user_base;
   user_size = encl->params.user_size;
-  return allocate_epm(epm_start, epm_size, pa_user_base, user_size,utm_start,utm_size, encl->params.untrusted_ptr);
+  */
+  //return allocate_epm(epm_start, epm_size, pa_user_base, user_size,utm_start,utm_size, encl->params.untrusted_ptr);
+  return allocateEpm(encl);
 }
 
 unsigned long validate_and_hash_enclave(struct enclave* enclave){
