@@ -68,6 +68,7 @@
 #define SBI_ERR_SM_ENCLAVE_INPUT_RT_ELF_WRONG          100112
 #define SBI_ERR_SM_ENCLAVE_RT_LOAD_WRONG               100113
 #define SBI_ERR_SM_ENCLAVE_EAPP_LOAD_WRONG             100114
+#define SBI_ERR_SM_ENCLAVE_EAPP_NOT_SIGNED             100115
 
 #define SBI_ERR_SM_PMP_SUCCESS                         0
 #define SBI_ERR_SM_PMP_REGION_SIZE_INVALID             100020

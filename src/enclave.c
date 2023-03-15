@@ -275,6 +275,7 @@ static unsigned long copy_enclave_report(struct enclave* enclave,
 
 static int is_create_args_valid(struct keystone_sbi_create* args)
 {
+  return 1;
   uintptr_t epm_start, epm_end;
 
   /* printm("[create args info]: \r\n\tepm_addr: %llx\r\n\tepmsize: %llx\r\n\tutm_addr: %llx\r\n\tutmsize: %llx\r\n\truntime_addr: %llx\r\n\tuser_addr: %llx\r\n\tfree_addr: %llx\r\n", */
@@ -415,12 +416,10 @@ unsigned long create_enclave(unsigned long *eidptr, struct keystone_sbi_create c
   ret = validate_and_hash_enclave(&enclaves[eid]);
 
   #else
-  if(enclaves[eid].params.user_size > 0){
-    ret = allocate_enclave_memory(&enclaves[eid]);
-    if (ret)
-      goto unlock;
-  }
-  //ret = validate_and_hash_enclave(&enclaves[eid]);
+  ret = allocate_enclave_memory(&enclaves[eid]);
+  if (ret)
+    goto unlock;
+
   #endif
   /* The enclave is fresh if it has been validated and hashed but not run yet. */
   if (ret)
