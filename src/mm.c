@@ -24,8 +24,9 @@ struct header_data {
 
 #define MAGIC_NUMBER "!emb"
 
-extern byte _rt_root_public_key[PUBLIC_KEY_SIZE];
+
 extern byte _eapp_root_public_key[PUBLIC_KEY_SIZE];
+extern byte _eapp_root_enc_key[ENC_KEY_SIZE];
 
 extern char _runtime_start;
 extern char _runtime_end;
@@ -388,20 +389,16 @@ bool loadElf(elf_t* elf, unsigned int mode, uintptr_t rootPageTable, uintptr_t* 
 unsigned long decryptEnclave(uintptr_t start, const unsigned char* root_enc_key){
 
   unsigned char magic[] = MAGIC_NUMBER;
-  uintptr_t temp = start;
+
   uintptr_t eappStart = start + sizeof(int);
 
-  struct header_data * header;
-  uintptr_t bodyStart = eappStart + sizeof(struct header_data);
-
-  if(sbi_memcmp((const void*) temp, (const void*)magic,4) == 0){
-    header = (struct header_data *) eappStart;
-  }
-  else{
-    sbi_printf("Not include header\n");
+  if(sbi_memcmp((const void*) eappStart, (const void*)magic,4) != 0){
 
     return SBI_ERR_SM_ENCLAVE_EAPP_NOT_SIGNED;
   }
+
+  struct header_data * header =  (struct header_data *) eappStart;
+  uintptr_t bodyStart = eappStart + sizeof(struct header_data);
 
   if(header->function_map & 0x1){  //binary is encrypted
                 WORD w[80];
@@ -415,7 +412,7 @@ unsigned long decryptEnclave(uintptr_t start, const unsigned char* root_enc_key)
                     header->iv);
 
                 aes_key_setup(enc_key,w,256);
-                aes_decrypt_ctr((const BYTE *) start,
+                aes_decrypt_ctr((const BYTE *) bodyStart,
                     header->image_size,
                     (BYTE *) bodyStart,
                     w,
@@ -425,7 +422,6 @@ unsigned long decryptEnclave(uintptr_t start, const unsigned char* root_enc_key)
   }
   return 0;
 }
-
 
 unsigned long verifyEnclave(uintptr_t start,const unsigned char* root_pub_key, uintptr_t* elfStart, int* elfSize){
 
@@ -437,7 +433,7 @@ unsigned long verifyEnclave(uintptr_t start,const unsigned char* root_pub_key, u
   uintptr_t bodyStart = eappStart + sizeof(struct header_data);
 
   if(sbi_memcmp((const void*) eappStart, (const void*)magic,4) != 0){
-    sbi_printf("Not include header\n");
+    sbi_printf("The image is not signed\n");
     *elfStart = eappStart;
     *elfSize = *(int*)start;
     return SBI_ERR_SM_ENCLAVE_EAPP_NOT_SIGNED;
@@ -518,7 +514,11 @@ allocateEpm(struct enclave* encl){
   uintptr_t elfStart;
   int elfSize;
   unsigned long ret = verifyEnclave(utm_start, _eapp_root_public_key, &elfStart,&elfSize);
+  if(ret != 0 && ret != SBI_ERR_SM_ENCLAVE_EAPP_NOT_SIGNED ){
+    return ret;
+  }
 
+  ret = decryptEnclave(utm_start, _eapp_root_enc_key);
   if(ret != 0 && ret != SBI_ERR_SM_ENCLAVE_EAPP_NOT_SIGNED ){
     return ret;
   }
